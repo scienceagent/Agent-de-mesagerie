@@ -22,9 +22,12 @@ namespace Broker
                     // 1. Subscription command + Automatic Historical Replay
                     if (messageFrame.StartsWith("subscribe#", StringComparison.OrdinalIgnoreCase))
                     {
-                         string topic = messageFrame.Substring("subscribe#".Length).Trim().ToLowerInvariant();
-                         if (!string.IsNullOrEmpty(topic))
+                         string[] parts = messageFrame.Split('#', StringSplitOptions.RemoveEmptyEntries);
+                         if (parts.Length >= 2)
                          {
+                              string topic = parts[1].Trim().ToLowerInvariant();
+                              bool isLiveOnly = parts.Length >= 3 && parts[2].Equals("live", StringComparison.OrdinalIgnoreCase);
+
                               ConnectionStorage.Add(connectionInfo);
 
                               // Enforce single subscription per topic (Idempotency)
@@ -38,19 +41,22 @@ namespace Broker
 
                               connectionInfo.Topics.Add(topic);
 
-                              Console.WriteLine($"[Broker] Client [{connectionInfo.Address}] subscribed to topic: '{topic}'");
+                              Console.WriteLine($"[Broker] Client [{connectionInfo.Address}] subscribed to topic: '{topic}' (Live-Only: {isLiveOnly})");
                               connectionInfo.SendFramed($"ACK#subscribed#{topic}");
 
-                              // Historical replay for newly subscribed client
-                              var history = PayloadStorage.GetHistoricalMessages(topic, limit: 50);
-                              if (history.Count > 0)
+                              // Historical replay for newly subscribed client unless requested 'live' only
+                              if (!isLiveOnly)
                               {
-                                   Console.WriteLine($"[Broker] Replaying {history.Count} historical message(s) on topic '{topic}' to [{connectionInfo.Address}]");
-                                   foreach (var oldPayload in history)
+                                   var history = PayloadStorage.GetHistoricalMessages(topic, limit: 50);
+                                   if (history.Count > 0)
                                    {
-                                        string targetFormat = connectionInfo.PreferredFormat ?? "json";
-                                        string formatted = SerializationHelper.ConvertFormat(oldPayload, targetFormat);
-                                        connectionInfo.SendFramed(formatted);
+                                        Console.WriteLine($"[Broker] Replaying {history.Count} historical message(s) on topic '{topic}' to [{connectionInfo.Address}]");
+                                        foreach (var oldPayload in history)
+                                        {
+                                             string targetFormat = connectionInfo.PreferredFormat ?? "json";
+                                             string formatted = SerializationHelper.ConvertFormat(oldPayload, targetFormat);
+                                             connectionInfo.SendFramed(formatted);
+                                        }
                                    }
                               }
                          }
@@ -110,11 +116,25 @@ namespace Broker
                     }
 
                     // 6. Normal Message Payload (JSON or XML)
-                    Payload payload = SerializationHelper.DeserializePayload(messageFrame, out string detectedFormat);
+                    Payload payload = null;
+                    string detectedFormat = "json";
+                    try
+                    {
+                         payload = SerializationHelper.DeserializePayload(messageFrame, out detectedFormat);
+                    }
+                    catch (Exception ex)
+                    {
+                         // Catch serialization exceptions (e.g. malformed XML/JSON)
+                         Console.WriteLine($"[Broker] Serialization error from [{connectionInfo.Address}]: {ex.Message}");
+                         DeadLetterQueue.RecordDeadLetter(messageFrame, connectionInfo.Address, $"Serialization Error: {ex.Message}");
+                         connectionInfo.SendFramed("ERROR#malformed_payload");
+                         return;
+                    }
 
                     if (payload == null || string.IsNullOrWhiteSpace(payload.Topic))
                     {
                          Console.WriteLine($"[Broker] Warning: Rejected malformed payload or missing topic from [{connectionInfo.Address}]");
+                         DeadLetterQueue.RecordDeadLetter(messageFrame, connectionInfo.Address, "Missing Topic or Null Payload");
                          connectionInfo.SendFramed("ERROR#invalid_payload_missing_topic");
                          return;
                     }
@@ -146,6 +166,7 @@ namespace Broker
                catch (Exception ex)
                {
                     Console.WriteLine($"[Broker] Exception handling payload from [{connectionInfo.Address}]: {ex.Message}");
+                    DeadLetterQueue.RecordDeadLetter(messageFrame, connectionInfo.Address, $"Unhandled Exception: {ex.Message}");
                     connectionInfo.SendFramed($"ERROR#internal_error#{ex.Message}");
                }
           }
