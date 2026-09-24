@@ -1,24 +1,58 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System;
 using Common;
-using Newtonsoft.Json;
+
 #nullable disable
-
-
 namespace Subscriber
 {
-     class PayloadHandler
+     public static class PayloadHandler
      {
+          public static void Handle(string payloadString)
+          {
+               if (string.IsNullOrWhiteSpace(payloadString)) return;
+
+               try
+               {
+                    // Check if it is a control ACK / response
+                    if (payloadString.StartsWith("ACK#", StringComparison.OrdinalIgnoreCase) ||
+                        payloadString.StartsWith("TOPICS#", StringComparison.OrdinalIgnoreCase) ||
+                        payloadString.StartsWith("ERROR#", StringComparison.OrdinalIgnoreCase))
+                    {
+                         Console.ForegroundColor = ConsoleColor.Yellow;
+                         Console.WriteLine($"\n[Broker Control] {payloadString}");
+                         Console.ResetColor();
+                         return;
+                    }
+
+                    // Deserialize as Payload (XML or JSON)
+                    var payload = SerializationHelper.DeserializePayload(payloadString, out string detectedFormat);
+                    if (payload != null)
+                    {
+                         Console.ForegroundColor = ConsoleColor.Green;
+                         Console.WriteLine("\n--------------------------------------------------");
+                         Console.WriteLine($"[RECEIVED MESSAGE] Topic: '{payload.Topic}' (Format: {detectedFormat.ToUpper()})");
+                         Console.WriteLine($"  ID:        {payload.Id}");
+                         Console.WriteLine($"  Time UTC:  {payload.Timestamp:yyyy-MM-dd HH:mm:ss}");
+                         Console.WriteLine($"  Sender:    {payload.Sender}");
+                         Console.ForegroundColor = ConsoleColor.White;
+                         Console.WriteLine($"  Content:   {payload.Message}");
+                         Console.ForegroundColor = ConsoleColor.Green;
+                         Console.WriteLine("--------------------------------------------------");
+                         Console.ResetColor();
+                    }
+               }
+               catch (Exception ex)
+               {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"[Subscriber] Error parsing incoming payload: {ex.Message}");
+                    Console.ResetColor();
+               }
+          }
+
           public static void Handle(byte[] payloadBytes)
           {
-               var payloadString = Encoding.UTF8.GetString(payloadBytes);
-               var payload = JsonConvert.DeserializeObject<Payload>(payloadString); 
-
-               Console.WriteLine(payload.Message);
-
+               if (payloadBytes == null || payloadBytes.Length == 0) return;
+               string payloadString = System.Text.Encoding.UTF8.GetString(payloadBytes);
+               Handle(payloadString);
           }
      }
 }

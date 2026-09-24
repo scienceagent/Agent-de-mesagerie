@@ -1,107 +1,181 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Security.Cryptography;
 using System.Text;
-using System.Threading.Tasks;
+using System.Threading;
 using Common;
-using Newtonsoft.Json;
+
 #nullable disable
-
-
 namespace Subscriber
 {
-     class SubscriberSocket
+     public class SubscriberSocket
      {
           private Socket _socket;
-          private string _topic;
+          private readonly string _initialTopic;
+          private readonly HashSet<string> _subscribedTopics = new(StringComparer.OrdinalIgnoreCase);
+          private readonly ConnectionInfo _connectionInfo = new();
+          public bool IsConnected => _socket != null && _socket.Connected;
 
-          public SubscriberSocket(string topic)
+          public IReadOnlyCollection<string> SubscribedTopics => _subscribedTopics;
+
+          public SubscriberSocket(string topic = null)
           {
-               _topic = topic;
+               _initialTopic = topic;
                _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
           }
-          
-          public void Connect(string ipAddress, int port)
-          {
-               _socket.BeginConnect(new IPEndPoint(IPAddress.Parse(ipAddress), port), ConnectedCallback, null);
-               Console.WriteLine("Waiting for connection");
 
-          }
-
-          private void ConnectedCallback(IAsyncResult asyncResult)
+          public bool Connect(string ipAddress, int port)
           {
-               if (_socket.Connected)
+               try
                {
-                    Console.WriteLine("Subscriber connected to broker.");
-                    Subscribe();
-                    StartRecieve();
+                    Console.WriteLine($"[Subscriber] Connecting to Broker at {ipAddress}:{port}...");
+                    var ip = (ipAddress == "localhost") ? IPAddress.Loopback : IPAddress.Parse(ipAddress);
+                    
+                    _socket.Connect(new IPEndPoint(ip, port));
+                    Console.WriteLine("[Subscriber] Connected successfully to Broker.");
+
+                    _connectionInfo.Socket = _socket;
+                    StartReceive();
+
+                    if (!string.IsNullOrWhiteSpace(_initialTopic))
+                    {
+                         Subscribe(_initialTopic);
+                    }
+
+                    return true;
                }
-               else
+               catch (Exception ex)
                {
-                    Console.WriteLine("Error: Subscriber could not connect to broker.");
+                    Console.WriteLine($"[Subscriber] Connection failed: {ex.Message}");
+                    return false;
                }
           }
 
-          private void Subscribe()
+          public void Subscribe(string topic)
           {
-               var data = Encoding.UTF8.GetBytes("subscribe#" + _topic);
-               Send(data);
+               if (string.IsNullOrWhiteSpace(topic) || !IsConnected)
+                    return;
+
+               topic = topic.Trim().ToLowerInvariant();
+               if (_subscribedTopics.Contains(topic))
+               {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"[Subscriber] You are ALREADY subscribed to topic: '{topic}'. Request skipped.");
+                    Console.ResetColor();
+                    return;
+               }
+
+               _subscribedTopics.Add(topic);
+               SendFramed("subscribe#" + topic);
+               Console.WriteLine($"[Subscriber] Sent subscribe request for topic: '{topic}'");
           }
 
-          private void StartRecieve()
+          public void Unsubscribe(string topic)
           {
-               ConnectionInfo connection = new ConnectionInfo();
-               connection.Socket = _socket;
+               if (string.IsNullOrWhiteSpace(topic) || !IsConnected)
+                    return;
 
-               _socket.BeginReceive(connection.Data, 0, connection.Data.Length, SocketFlags.None, RecieveCallback, connection);
+               topic = topic.Trim().ToLowerInvariant();
+               if (!_subscribedTopics.Contains(topic))
+               {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"[Subscriber] You are NOT subscribed to topic: '{topic}'.");
+                    Console.ResetColor();
+                    return;
+               }
+
+               _subscribedTopics.Remove(topic);
+               SendFramed("unsubscribe#" + topic);
+               Console.WriteLine($"[Subscriber] Sent unsubscribe request for topic: '{topic}'");
           }
 
-          private void RecieveCallback(IAsyncResult asyncResult)
+          public void SetFormat(string format)
           {
-               ConnectionInfo connectionInfo = asyncResult.AsyncState as ConnectionInfo;
+               if (!IsConnected) return;
+               format = format.Trim().ToLowerInvariant();
+               SendFramed("format#" + format);
+               Console.WriteLine($"[Subscriber] Requested format preference: {format.ToUpper()}");
+          }
+
+          public void RequestTopicsList()
+          {
+               if (!IsConnected) return;
+               SendFramed("topics#list");
+          }
+
+          private void StartReceive()
+          {
+               try
+               {
+                    _socket.BeginReceive(
+                         _connectionInfo.Data,
+                         0,
+                         _connectionInfo.Data.Length,
+                         SocketFlags.None,
+                         ReceiveCallback,
+                         _connectionInfo);
+               }
+               catch (Exception ex)
+               {
+                    Console.WriteLine($"[Subscriber] Cannot start receiving: {ex.Message}");
+               }
+          }
+
+          private void ReceiveCallback(IAsyncResult asyncResult)
+          {
+               var connectionInfo = (ConnectionInfo)asyncResult.AsyncState;
 
                try
                {
-                    SocketError response;
-                    int buffSize = _socket.EndReceive(asyncResult, out response);
+                    int buffSize = _socket.EndReceive(asyncResult, out SocketError response);
 
-                    if (response == SocketError.Success)
+                    if (response == SocketError.Success && buffSize > 0)
                     {
-                         byte[] payloadBytes = new byte[buffSize];
-                         Array.Copy(connectionInfo.Data, payloadBytes, payloadBytes.Length);
+                         // Extract complete frames from TCP buffer
+                         var frames = connectionInfo.AppendAndExtractFrames(connectionInfo.Data, buffSize);
 
-                         string payloadString = Encoding.UTF8.GetString(payloadBytes);
+                         foreach (var frame in frames)
+                         {
+                              PayloadHandler.Handle(frame);
+                         }
 
-                         Payload payload = JsonConvert.DeserializeObject<Payload>(payloadString);
-
-                         Console.WriteLine(payload.Message);
+                         // Continue receiving
+                         _socket.BeginReceive(
+                              connectionInfo.Data,
+                              0,
+                              connectionInfo.Data.Length,
+                              SocketFlags.None,
+                              ReceiveCallback,
+                              connectionInfo);
+                    }
+                    else
+                    {
+                         Console.WriteLine("[Subscriber] Connection closed by Broker.");
+                         Close();
                     }
                }
-               catch(Exception e)
+               catch (Exception ex)
                {
-                    Console.WriteLine($"Can't receive data from broker. {e.Message}");
-               }
-               finally
-               {
-                    try
-                    {
-                         connectionInfo.Socket.BeginReceive(connectionInfo.Data, 0, connectionInfo.Data.Length, SocketFlags.None, RecieveCallback, connectionInfo);
-
-                    }
-                    catch (Exception e) 
-                    {
-                         Console.WriteLine($"{e.Message}");
-                         connectionInfo.Socket.Close();
-
-                    
-
-                    }
+                    Console.WriteLine($"[Subscriber] Connection dropped: {ex.Message}");
+                    Close();
                }
           }
-          private void Send(byte[] data)
+
+          public void SendFramed(string text)
+          {
+               try
+               {
+                    byte[] data = MessageFraming.Encode(text);
+                    _socket.Send(data);
+               }
+               catch (Exception ex)
+               {
+                    Console.WriteLine($"[Subscriber] Failed to send: {ex.Message}");
+               }
+          }
+
+          public void Send(byte[] data)
           {
                try
                {
@@ -111,7 +185,15 @@ namespace Subscriber
                {
                     Console.WriteLine($"Could not send data: {e.Message}");
                }
+          }
 
+          public void Close()
+          {
+               try
+               {
+                    _socket?.Close();
+               }
+               catch { }
           }
      }
 }
