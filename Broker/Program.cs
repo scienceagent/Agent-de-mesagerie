@@ -27,10 +27,23 @@ namespace Broker
                var worker = new Worker(workerCount: 4);
                Task.Factory.StartNew(worker.DoSendMessageWork, TaskCreationOptions.LongRunning);
 
-               Console.WriteLine("[Status] Broker is RUNNING. Press Ctrl+C or Enter to shutdown.");
+               Console.WriteLine("[Status] Broker is RUNNING. Press Ctrl+C to shutdown.");
                Console.WriteLine("==================================================");
 
-               Console.ReadLine();
+               var shutdownEvent = new System.Threading.ManualResetEventSlim(false);
+               AppDomain.CurrentDomain.ProcessExit += (s, e) => shutdownEvent.Set();
+               Console.CancelKeyPress += (s, e) => { e.Cancel = true; shutdownEvent.Set(); };
+
+               if (!Console.IsInputRedirected)
+               {
+                    Task.Run(() =>
+                    {
+                         try { Console.ReadLine(); } catch { }
+                         shutdownEvent.Set();
+                    });
+               }
+
+               shutdownEvent.Wait();
                Console.WriteLine("[Status] Shutting down Broker...");
                worker.Stop();
           }

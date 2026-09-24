@@ -12,6 +12,8 @@ services:
     volumes:
       - broker-storage:/app/storage
     restart: unless-stopped
+    stdin_open: true
+    tty: true
 
 volumes:
   broker-storage:
