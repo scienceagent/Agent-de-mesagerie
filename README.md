@@ -50,7 +50,10 @@ Once the container is running, any client can connect to `localhost:9000`:
 # Python GUI Subscriber
 python Clients/Python/subscriber_ui.py --name "Alice"
 
-# Python Publisher
+# Python GUI Publisher (Interactive UI)
+python Clients/Python/publisher_ui.py --name "Bob"
+
+# Python CLI Publisher
 python Clients/Python/publisher.py
 
 # C# Subscriber
