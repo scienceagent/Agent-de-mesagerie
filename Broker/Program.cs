@@ -13,7 +13,7 @@ namespace Broker
                Console.WriteLine("       DISTRIBUTED MESSAGE BROKER (.NET 8)        ");
                Console.WriteLine("==================================================");
 
-               string ip = args.Length > 0 ? args[0] : Settings.BROKER_IP;
+               string ip = args.Length > 0 ? args[0] : (Environment.GetEnvironmentVariable("BROKER_IP") ?? "0.0.0.0");
                int port = args.Length > 1 && int.TryParse(args[1], out var parsedPort) ? parsedPort : Settings.BROKER_PORT;
 
                Console.WriteLine($"[Config] Binding IP: {ip}");
