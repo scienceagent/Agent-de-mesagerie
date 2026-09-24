@@ -1,0 +1,18 @@
+services:
+  broker:
+    build:
+      context: .
+      dockerfile: Dockerfile.broker
+    container_name: distributed-message-broker
+    ports:
+      - "9000:9000"
+    environment:
+      - BROKER_IP=0.0.0.0
+      - BROKER_PORT=9000
+    volumes:
+      - broker-storage:/app/storage
+    restart: unless-stopped
+
+volumes:
+  broker-storage:
+    driver: local

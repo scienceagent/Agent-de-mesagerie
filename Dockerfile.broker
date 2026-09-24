@@ -1,0 +1,27 @@
+# Build Stage
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# Copy project files and restore
+COPY ["Common/Common.csproj", "Common/"]
+COPY ["Broker/Broker.csproj", "Broker/"]
+RUN dotnet restore "Broker/Broker.csproj"
+
+# Copy full source and publish
+COPY Common/ Common/
+COPY Broker/ Broker/
+WORKDIR "/src/Broker"
+RUN dotnet publish "Broker.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+# Runtime Stage
+FROM mcr.microsoft.com/dotnet/runtime:8.0 AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+
+# Expose TCP socket port
+EXPOSE 9000
+
+ENV BROKER_IP=0.0.0.0
+ENV BROKER_PORT=9000
+
+ENTRYPOINT ["dotnet", "Broker.dll"]
