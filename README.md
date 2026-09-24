@@ -15,10 +15,62 @@ A TCP-based distributed message broker implementing the Publisher/Subscriber pat
 |-----------|---------|
 | .NET SDK  | 8.0+    |
 | Python    | 3.9+    |
+| Docker & Docker Compose | (Optional for containerized deployment) |
 
-## Running Locally
+---
 
-### 1. Start the Broker (Required First)
+## Running with Docker (Deployment)
+
+You can launch the entire Broker service in an isolated Linux container with persistent storage with a single command.
+
+### 1. Build and Start the Broker Container
+
+```bash
+docker compose up -d --build
+```
+
+- Broker starts in the background, listening on port `9000`.
+- Data persistence is automatically handled via the `broker-storage` Docker volume.
+
+### 2. View Logs & Status
+
+```bash
+# View live logs
+docker compose logs -f broker
+
+# Check container status
+docker compose ps
+```
+
+### 3. Connect Clients (Host Machine or LAN)
+
+Once the container is running, any client can connect to `localhost:9000`:
+
+```bash
+# Python GUI Subscriber
+python Clients/Python/subscriber_ui.py --name "Alice"
+
+# Python Publisher
+python Clients/Python/publisher.py
+
+# C# Subscriber
+dotnet run --project Subscriber/Subscriber.csproj
+
+# C# Publisher
+dotnet run --project Publisher/Publisher.csproj
+```
+
+### 4. Stop the Broker Container
+
+```bash
+docker compose down
+```
+
+---
+
+## Running Locally (Without Docker)
+
+### 1. Start the Broker
 
 ```bash
 dotnet run --project Broker/Broker.csproj
@@ -47,6 +99,8 @@ dotnet run --project Publisher/Publisher.csproj
 ```bash
 python Clients/Python/publisher.py
 ```
+
+---
 
 ## Key Features
 
