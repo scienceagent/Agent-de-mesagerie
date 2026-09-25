@@ -48,12 +48,12 @@ def main():
     # 1. Connect Subscriber 1 (JSON mode)
     sub1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sub1.connect((broker_ip, broker_port))
-    send_frame(sub1, "subscribe#news")
+    send_frame(sub1, "subscribe#news#live")
     ack1 = recv_frame(sub1)
     print(f"[Sub1] Subscribed to 'news': {ack1}")
     assert "ACK#subscribed#news" in (ack1 or "")
 
-    send_frame(sub1, "subscribe#sports")
+    send_frame(sub1, "subscribe#sports#live")
     ack2 = recv_frame(sub1)
     print(f"[Sub1] Subscribed to 'sports': {ack2}")
     assert "ACK#subscribed#sports" in (ack2 or "")
@@ -66,7 +66,7 @@ def main():
     print(f"[Sub2] Format set to XML: {ack_fmt}")
     assert "ACK#format#xml" in (ack_fmt or "")
 
-    send_frame(sub2, "subscribe#sports")
+    send_frame(sub2, "subscribe#sports#live")
     ack3 = recv_frame(sub2)
     print(f"[Sub2] Subscribed to 'sports': {ack3}")
     assert "ACK#subscribed#sports" in (ack3 or "")

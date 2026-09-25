@@ -45,8 +45,8 @@ namespace Broker
                               Console.WriteLine($"[Broker] Client [{connectionInfo.Address}] subscribed to topic: '{topic}' (Live-Only: {isLiveOnly})");
                               connectionInfo.SendFramed($"ACK#subscribed#{topic}");
 
-                              // Historical replay for newly subscribed client unless requested 'live' only
-                              if (!isLiveOnly)
+                              // Historical replay for newly subscribed client unless requested 'live' only or topic is a Unicast Queue
+                              if (!isLiveOnly && !ConnectionStorage.IsQueueTopic(topic))
                               {
                                    var history = PayloadStorage.GetHistoricalMessages(topic, limit: 50);
                                    if (history.Count > 0)
