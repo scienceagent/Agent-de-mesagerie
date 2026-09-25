@@ -32,6 +32,10 @@ namespace Common
           [JsonProperty("sender")]
           public string Sender { get; set; } = "anonymous";
 
+          [XmlElement("sequence_number")]
+          [JsonProperty("sequence_number")]
+          public long SequenceNumber { get; set; } = 0;
+
           public override string ToString()
           {
                return $"[ID: {Id}] [Topic: {Topic}] [Time: {Timestamp:HH:mm:ss}] [Format: {Format}] [From: {Sender}]: {Message}";

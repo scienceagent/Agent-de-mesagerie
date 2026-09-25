@@ -57,6 +57,7 @@ namespace Common
         <xs:element name=""timestamp"" type=""xs:string"" minOccurs=""0"" maxOccurs=""1"" />
         <xs:element name=""format"" type=""xs:string"" minOccurs=""0"" maxOccurs=""1"" />
         <xs:element name=""sender"" type=""xs:string"" minOccurs=""0"" maxOccurs=""1"" />
+        <xs:element name=""sequence_number"" type=""xs:long"" minOccurs=""0"" maxOccurs=""1"" />
       </xs:sequence>
     </xs:complexType>
   </xs:element>

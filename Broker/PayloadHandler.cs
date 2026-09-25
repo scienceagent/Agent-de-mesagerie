@@ -9,6 +9,7 @@ namespace Broker
      public static class PayloadHandler
      {
           private const string BROKER_NODE_ID = "BrokerNode-1";
+          private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, long> _topicSequences = new();
 
           public static void Handle(string messageFrame, ConnectionInfo connectionInfo)
           {
@@ -151,6 +152,7 @@ namespace Broker
                     }
 
                     payload.Topic = payload.Topic.Trim().ToLowerInvariant();
+                    payload.SequenceNumber = _topicSequences.AddOrUpdate(payload.Topic, 1, (k, oldSeq) => oldSeq + 1);
                     payload.Format = detectedFormat;
                     if (string.IsNullOrEmpty(payload.Sender) || payload.Sender == "anonymous")
                     {
@@ -160,7 +162,7 @@ namespace Broker
                     // Store payload in persistent storage
                     PayloadStorage.Add(payload);
 
-                    Console.WriteLine($"[Broker] Received & Enriched [{payload.Format.ToUpper()}] message on topic '{payload.Topic}' (ID: {payload.Id}). Stored in journal.");
+                    Console.WriteLine($"[Broker] Received & Enriched [{payload.Format.ToUpper()}] message on topic '{payload.Topic}' (Seq: #{payload.SequenceNumber}, ID: {payload.Id}). Stored in journal.");
                     connectionInfo.SendFramed($"ACK#published#{payload.Id}");
                }
                catch (Exception ex)
