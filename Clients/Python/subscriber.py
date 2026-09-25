@@ -21,6 +21,7 @@ class PythonSubscriber:
         self.running = False
         self.buffer = ""
         self.subscribed_topics = set()
+        self.processed_ids = set()
 
     def connect(self):
         try:
@@ -132,7 +133,14 @@ class PythonSubscriber:
     def _print_payload(self, topic, msg, msg_id, timestamp, sender, fmt):
         # Auto-send Consumer ACK to Broker
         if msg_id:
-            self.send(f"ACK#consumed#{msg_id}")
+            self.send_command(f"ACK#consumed#{msg_id}")
+
+        if msg_id and msg_id in self.processed_ids:
+            print(f"\n[Deduplication] Message ID '{msg_id}' ALREADY PROCESSED. Skipping local effect!")
+            return
+
+        if msg_id:
+            self.processed_ids.add(msg_id)
 
         print("\n" + "-" * 50)
         print(f"[RECEIVED MESSAGE] Topic: '{topic}' (Format: {fmt})")

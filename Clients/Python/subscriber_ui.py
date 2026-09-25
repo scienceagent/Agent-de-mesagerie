@@ -34,6 +34,7 @@ class SubscriberApp:
         self.buffer = ""
         self.subscribed_topics = set()
         self.preferred_format = "json"
+        self.processed_ids = set()
 
         self._build_ui()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -300,9 +301,19 @@ class SubscriberApp:
                 pass
 
         if parsed:
+            msg_id = parsed.get("id")
             # Send Consumer ACK back to Broker
-            if parsed.get("id"):
-                self._send_cmd(f"ACK#consumed#{parsed['id']}")
+            if msg_id:
+                self._send_cmd(f"ACK#consumed#{msg_id}")
+
+            # Idempotent Consumer: Deduplication check
+            if msg_id and msg_id in self.processed_ids:
+                self.inspector_text.delete("1.0", tk.END)
+                self.inspector_text.insert(tk.END, f"[Deduplication] Message ID {msg_id} was already processed. Skipped duplicate side-effect.")
+                return
+
+            if msg_id:
+                self.processed_ids.add(msg_id)
 
             item_id = self.tree.insert("", 0, values=(
                 parsed["id"],
