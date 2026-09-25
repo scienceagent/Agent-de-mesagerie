@@ -116,7 +116,28 @@ namespace Broker
                          return;
                     }
 
-                    // 6. Normal Message Payload (JSON or XML)
+                    // 6. Consumer ACK confirmation (ACK#consumed#<id>)
+                    if (messageFrame.StartsWith("ack#consumed#", StringComparison.OrdinalIgnoreCase))
+                    {
+                         string messageId = messageFrame.Substring("ack#consumed#".Length).Trim();
+                         connectionInfo.InFlightMessages.TryRemove(messageId, out _);
+                         Console.WriteLine($"[Broker] Consumer ACK received from [{connectionInfo.Address}] for Message ID: [{messageId}]");
+                         return;
+                    }
+
+                    // 7. Consumer NACK notification (NACK#<id>#<reason>)
+                    if (messageFrame.StartsWith("nack#", StringComparison.OrdinalIgnoreCase))
+                    {
+                         string[] parts = messageFrame.Split('#', 3);
+                         string messageId = parts.Length > 1 ? parts[1].Trim() : "unknown";
+                         string reason = parts.Length > 2 ? parts[2].Trim() : "unspecified";
+                         connectionInfo.InFlightMessages.TryRemove(messageId, out _);
+                         Console.WriteLine($"[Broker] Consumer NACK received from [{connectionInfo.Address}] for Message ID: [{messageId}]. Reason: {reason}");
+                         DeadLetterQueue.RecordDeadLetter($"NACK_PAYLOAD_{messageId}", connectionInfo.Address, $"Consumer NACK: {reason}");
+                         return;
+                    }
+
+                    // 8. Normal Message Payload (JSON or XML)
                     Payload payload = null;
                     string detectedFormat = "json";
                     try

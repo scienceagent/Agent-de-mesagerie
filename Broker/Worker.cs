@@ -78,10 +78,14 @@ namespace Broker
                          string targetFormat = connection.PreferredFormat ?? "json";
                          string formattedMessage = SerializationHelper.ConvertFormat(payload, targetFormat);
 
+                         // Track message as in-flight awaiting Consumer ACK
+                         connection.InFlightMessages[payload.Id] = DateTime.UtcNow;
+
                          // Send with frame delimiter
                          bool sent = connection.SendFramed(formattedMessage);
                          if (!sent)
                          {
+                              connection.InFlightMessages.TryRemove(payload.Id, out _);
                               Console.WriteLine($"[Worker] Failed delivery to [{connection.Address}], removing stale connection.");
                               ConnectionStorage.Remove(connection.Address);
                          }

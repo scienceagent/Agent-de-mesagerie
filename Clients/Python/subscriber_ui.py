@@ -300,6 +300,10 @@ class SubscriberApp:
                 pass
 
         if parsed:
+            # Send Consumer ACK back to Broker
+            if parsed.get("id"):
+                self._send_cmd(f"ACK#consumed#{parsed['id']}")
+
             item_id = self.tree.insert("", 0, values=(
                 parsed["id"],
                 parsed["timestamp"],

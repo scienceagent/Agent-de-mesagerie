@@ -130,6 +130,10 @@ class PythonSubscriber:
         print(f"\n[Raw Message]: {frame}")
 
     def _print_payload(self, topic, msg, msg_id, timestamp, sender, fmt):
+        # Auto-send Consumer ACK to Broker
+        if msg_id:
+            self.send(f"ACK#consumed#{msg_id}")
+
         print("\n" + "-" * 50)
         print(f"[RECEIVED MESSAGE] Topic: '{topic}' (Format: {fmt})")
         print(f"  ID:        {msg_id}")

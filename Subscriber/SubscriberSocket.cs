@@ -138,6 +138,20 @@ namespace Subscriber
                          foreach (var frame in frames)
                          {
                               PayloadHandler.Handle(frame);
+
+                              // Consumer ACK: confirm message reception & processing to Broker
+                              if (!frame.StartsWith("ACK#") && !frame.StartsWith("INFO#") && !frame.StartsWith("TOPICS#") && !frame.StartsWith("ERROR#"))
+                              {
+                                   try
+                                   {
+                                        var payload = SerializationHelper.DeserializePayload(frame, out _);
+                                        if (payload != null && !string.IsNullOrEmpty(payload.Id))
+                                        {
+                                             SendFramed($"ACK#consumed#{payload.Id}");
+                                        }
+                                   }
+                                   catch { }
+                              }
                          }
 
                          // Continue receiving

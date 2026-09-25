@@ -32,6 +32,9 @@ namespace Common
           // Preferred output format for this subscriber (Adapter pattern: "json" or "xml")
           public string PreferredFormat { get; set; } = "json";
 
+          // In-Flight unacknowledged messages sent to this client (Message ID -> Timestamp)
+          public System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> InFlightMessages { get; } = new();
+
           // Stream buffer to assemble TCP chunks into complete delimited frames
           private readonly StringBuilder _buffer = new();
           private readonly object _sendLock = new();
