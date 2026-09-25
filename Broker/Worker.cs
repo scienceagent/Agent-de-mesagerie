@@ -61,14 +61,22 @@ namespace Broker
 
           private void DispatchMessage(Payload payload, int workerId)
           {
-               var connections = ConnectionStorage.GetConnectionByTopic(payload.Topic);
+               var connections = ConnectionStorage.GetConnectionsForDispatch(payload.Topic);
                if (connections.Count == 0)
                {
                     // No active subscribers for this topic at this moment
                     return;
                }
 
-               Console.WriteLine($"[Worker-{workerId}] Dispatching payload '{payload.Id}' (Topic: '{payload.Topic}') to {connections.Count} subscriber(s)...");
+               bool isQueue = ConnectionStorage.IsQueueTopic(payload.Topic);
+               if (isQueue)
+               {
+                    Console.WriteLine($"[Worker-{workerId}] [UNICAST QUEUE] Dispatching payload '{payload.Id}' (Queue: '{payload.Topic}') to worker [{connections[0].Address}]...");
+               }
+               else
+               {
+                    Console.WriteLine($"[Worker-{workerId}] [MULTICAST PUB/SUB] Dispatching payload '{payload.Id}' (Topic: '{payload.Topic}') to {connections.Count} subscriber(s)...");
+               }
 
                Parallel.ForEach(connections, connection =>
                {

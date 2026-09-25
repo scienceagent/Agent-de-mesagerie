@@ -72,7 +72,7 @@ class SubscriberApp:
         ctrl_frame = ttk.LabelFrame(self.root, text="Subscription Management", padding=(10, 5))
         ctrl_frame.pack(fill="x", padx=10, pady=5)
 
-        ttk.Label(ctrl_frame, text="Topic:").pack(side="left", padx=(0, 5))
+        ttk.Label(ctrl_frame, text="Topic (e.g. 'stiri' or 'queue:tasks'):").pack(side="left", padx=(0, 5))
         self.topic_entry = ttk.Entry(ctrl_frame, width=20)
         self.topic_entry.pack(side="left", padx=(0, 5))
         self.topic_entry.bind("<Return>", lambda e: self._subscribe())

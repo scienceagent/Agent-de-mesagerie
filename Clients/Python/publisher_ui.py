@@ -74,9 +74,9 @@ class PublisherApp:
         row1 = ttk.Frame(compose_frame)
         row1.pack(fill="x", pady=(0, 5))
 
-        ttk.Label(row1, text="Topic:").pack(side="left", padx=(0, 5))
-        self.topic_entry = ttk.Entry(row1, width=25)
-        self.topic_entry.pack(side="left", padx=(0, 20))
+        ttk.Label(row1, text="Topic (e.g. 'stiri' or 'queue:tasks'):").pack(side="left", padx=(0, 5))
+        self.topic_entry = ttk.Entry(row1, width=22)
+        self.topic_entry.pack(side="left", padx=(0, 15))
         self.topic_entry.insert(0, "stiri")
 
         ttk.Label(row1, text="Format:").pack(side="left", padx=(0, 8))
