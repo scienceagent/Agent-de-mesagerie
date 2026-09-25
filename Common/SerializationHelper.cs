@@ -64,6 +64,10 @@ namespace Common
             detectedFormat = DetectFormat(rawData);
             if (detectedFormat.Equals("xml", StringComparison.OrdinalIgnoreCase))
             {
+                if (!XmlValidation.ValidateXml(rawData, out string xsdErrors))
+                {
+                    throw new System.Xml.Schema.XmlSchemaValidationException($"XSD Validation Failed: {xsdErrors}");
+                }
                 var payload = DeserializeXml<Payload>(rawData);
                 payload.Format = "xml";
                 return payload;
