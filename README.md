@@ -1,114 +1,186 @@
-# Agent de Mesagerie Distribuit Rezilient (Distributed Message Broker)
+# Distributed Message Broker
 
-> **Universitatea Tehnică a Moldovei (UTM) — Facultatea Calculatoare, Informatică și Microelectronică (FCIM)**  
-> **Curs:** Dezvoltarea Sistemelor Distribuite (Distributed Systems)  
-> **Etapa 1 / Incrementul 1:** *Comunicare fiabilă și mesagerie în prezența latenței, eșecurilor și duplicatelor.*
+Sistem distribuit asincron de mesagerie bazat pe socket-uri TCP, orientat pe evenimente (Event-Driven Architecture), proiectat pentru fiabilitate înaltă, persistență și reziliență în prezența latenței de rețea, eșecurilor de nod și duplicării mesajelor.
 
 ---
 
-## 1. Viziune și Context Arhitectural
+## 1. Arhitectura Sistemului
 
-Acest proiect implementează un **Agent de Mesagerie (Message Broker) Distribuit și Rezilient**, conceput conform cerințelor riguroase din programa universitară UTM FCIM. Obiectivul central nu este doar livrarea mesajelor în condiții nominale, ci **garantarea integrității datelor în prezența latenței de rețea, prăbușirii abrupte a nodurilor (crash faults), duplicării mesajelor și pierderii confirmărilor (lost ACKs)**.
+Sistemul decuplează complet producătorii (Publishers) de consumatori (Subscribers) din punct de vedere spațial și temporal. Nucleul sistemului este un Broker distribuit (.NET 8) ce expune un server TCP multi-threaded, un sistem de persistență bazat pe jurnal (Write-Ahead / Append-Only Log), un pool concurent de dispatching și un subsistem de validare a contractelor de date (JSON și XML).
 
-Sistemul decuplează complet producătorii (Publishers) de consumatori (Subscribers) din punct de vedere spațial și temporal, oferind o arhitectură asincronă, orientată pe evenimente (Event-Driven Architecture).
+```mermaid
+flowchart TD
+    subgraph Clients["Clienți Poligloți (Producători & Consumatori)"]
+        PubGUI["Publisher GUI (Tkinter)"]
+        PubCLI["Publisher CLI (Python / C#)"]
+        SubGUI["Subscriber GUI (Tkinter Table)"]
+        SubCLI["Subscriber CLI (Competing Workers)"]
+    end
 
-```
-                      +---------------------------------------+
-                      |   PUBLISHERS (Polyglot Clients)       |
-                      |   - Python GUI (Tkinter)              |
-                      |   - Python CLI                        |
-                      |   - C# .NET Console                   |
-                      +-------------------+-------------------+
-                                          | TCP Socket [Payload + \n Framing]
-                                          v
-+-----------------------------------------------------------------------------------+
-|                        DISTRIBUTED MESSAGE BROKER (.NET 8)                        |
-|                                                                                   |
-|  +---------------------+   +-----------------------+   +-----------------------+  |
-|  | Socket Listener     |-->| Framing & Demuxer     |-->| Serialization Layer   |  |
-|  | (Port 9000, async)  |   | (Delimiter \n Stream) |   | (JSON & XML DOM/SAX)  |  |
-|  +---------------------+   +-----------------------+   +-----------+-----------+  |
-|                                                                    |              |
-|                                         +--------------------------+              |
-|                                         v                                         |
-|  +------------------+      +---------------------------+   +-------------------+  |
-|  | Dead-Letter      |<-----| Validation & Enricher     |-->| Monotonic Sequence|  |
-|  | Queue (DLQ)      | (err)| - XSD Schema Validator    |   | Number Generator  |  |
-|  | (dead_letter.jrn)|      | - UUID & UTC Timestamp    |   | (Per-Topic FIFO)  |  |
-|  +------------------+      +-------------+-------------+   +---------+---------+  |
-|                                          |                           |            |
-|                                          v                           v            |
-|  +-----------------------------------------------------------------------------+  |
-|  | Persistent Storage Engine (Append-Only Journal: storage/messages.journal)   |  |
-|  +---------------------------------------+-------------------------------------+  |
-|                                          |                                        |
-|                                          v                                        |
-|  +-----------------------------------------------------------------------------+  |
-|  | Worker Dispatch Pool (4 Concurrent Dispatch Threads)                        |  |
-|  | - Multicast Fan-out: Topics standard (1 -> N broadcast)                     |  |
-|  | - Unicast Point-to-Point: Queues (queue:*) Round-Robin Competing Consumers |  |
-|  | - Adapter Pattern: Format Negotiation (Convert to XML or JSON dynamically)  |  |
-|  | - In-Flight Message Registry (Awaiting Consumer ACKs)                       |  |
-|  +---------------------------------------+-------------------------------------+  |
-+------------------------------------------|----------------------------------------+
-                                           | TCP Socket [Delimited Frames]
-                                           v
-                      +--------------------+------------------+
-                      |   SUBSCRIBERS (Polyglot Clients)      |
-                      |   - Python GUI (Tkinter Table + Feed) |
-                      |   - Python CLI (Competing Workers)   |
-                      |   - C# .NET Console Clients           |
-                      |                                       |
-                      |   * Idempotent Deduplication Cache *  |
-                      |   * Auto ACK/NACK Feedback Loop *     |
-                      +---------------------------------------+
+    subgraph BrokerCore["Broker Central de Mesagerie (.NET 8)"]
+        Listener["Socket Listener (Port 9000, 0.0.0.0)"]
+        Framing["Delimiter Framing & Demuxer ('\\n')"]
+        
+        subgraph Ingestion["Validare, Secvențiere & Îmbogățire"]
+            SerLayer["Serialization Layer (JSON / XML)"]
+            XSDVal{"XSD Schema Validator\n(DOM XDocument & SAX)"}
+            Enricher["Content Enricher\n(UUID, UTC Time, Sender, Node)"]
+            SeqGen["Monotonic Sequence Generator\n(Per-Topic FIFO Sequences)"]
+            DLQ["Dead-Letter Queue (DLQ)\n(storage/dead_letter.journal)"]
+        end
+
+        subgraph Storage["Nivel de Persistență"]
+            Journal[("Append-Only Journal\nstorage/messages.journal")]
+            MemQueue["Concurrent Message Queue\n(AutoResetEvent 0ms latency)"]
+        end
+
+        subgraph Dispatch["Worker Pool & Rutare Concurentă"]
+            Workers["Worker Pool (4 Thread-uri Concurente)"]
+            RouteCheck{"Tip Topic?"}
+            UnicastRR["Unicast Queue (Round-Robin)\n(queue:*) -> 1 Worker"]
+            MulticastFan["Multicast Pub/Sub (Parallel.ForEach)\nTopic Standard -> All Subscribers"]
+            Adapter["Adapter Pattern\n(Negociere Format JSON/XML)"]
+            InFlightReg["In-Flight Message Registry\n(Urmărire ACK / NACK)"]
+        end
+    end
+
+    PubGUI -->|TCP Socket Frame| Listener
+    PubCLI -->|TCP Socket Frame| Listener
+    Listener --> Framing
+    Framing --> SerLayer
+    SerLayer --> XSDVal
+    XSDVal -- "Invalid / Malformed" --> DLQ
+    XSDVal -- "Valid XML / JSON" --> Enricher
+    Enricher --> SeqGen
+    SeqGen --> Journal
+    SeqGen --> MemQueue
+    MemQueue --> Workers
+    Workers --> RouteCheck
+    RouteCheck -- "queue:*" --> UnicastRR
+    RouteCheck -- "topic standard" --> MulticastFan
+    UnicastRR --> Adapter
+    MulticastFan --> Adapter
+    Adapter --> InFlightReg
+    InFlightReg -->|Delimited Frames| SubGUI
+    InFlightReg -->|Delimited Frames| SubCLI
+    SubGUI -.->|ACK#consumed#id| InFlightReg
+    SubCLI -.->|ACK#consumed#id| InFlightReg
 ```
 
 ---
 
-## 2. Pilonii Tehnici și Funcționalitățile Implementate
+## 2. Pilonii Tehnici și Modulele Arhitecturale
 
-### 2.1. Nivelul de Rețea și Protocolul de Încadrare (Framing)
+### 2.1. Nivelul de Transport și Delimitarea Pachetelor (Framing)
 * **Transport:** TCP Sockets nativ (`System.Net.Sockets.Socket` în C#, modulul `socket` în Python).
-* **Soluționarea problemei "Socket Stickiness" (TCP Packet Splitting & Concatenation):** TCP este un protocol de flux continuu de octeți (byte stream), fără delimitare nativă de mesaje. Pentru a preveni fragmentarea și lipirea pachetelor, am implementat **Delimiter-Based Framing** cu separator newline (`\n` / `0x0A`).
-* **Demultiplexare:** Clasa `Common/MessageFraming.cs` gestionează acumularea în buffer și extragerea atomică a cadrelor valide.
+* **Soluționarea problemei "Socket Stickiness" (TCP Packet Coalescing & Fragmentation):** Deoarece protocolul TCP funcționează ca un flux continuu de octeți (byte stream), lipsa delimitării poate duce la concatenarea mai multor mesaje într-un singur apel `recv` sau fragmentarea unui mesaj mare în mai multe pachete. Sistemul implementează **Delimiter-Based Framing** folosind caracterul newline (`\n` / `0x0A`).
+* **Demultiplexare:** Modulul `Common/MessageFraming.cs` gestionează acumularea în buffer per conexiune și extragerea atomică a cadrelor complete, garantând deserializarea fără corupere.
+
+---
 
 ### 2.2. Validare XML (XSD Schema) și Modelele de Prelucrare DOM vs. SAX
-Sistemul respectă cerința expresă a programei UTM privind studiul modelelor XML:
-* **Contractul XSD (`Common/PayloadSchema.xsd`):** Definește schema strictă a pachetului (`topic`, `message`, `sender`, `id`, `timestamp`, `sequence_number`).
-* **Modelul SAX (`XmlReader`):** Folosit pentru parsare secvențială, streaming de mare viteză și consum minim de memorie (O(1) overhead) la inspecția antetelor.
-* **Modelul DOM (`XDocument`):** Folosit pentru validare structurală completă în memorie împotriva schemei XSD și manipulare arborescentă înainte de serializare.
-* **Rejecție în DLQ:** Orice payload XML care încalcă schema XSD sau este malformat este respins cu `ERROR#malformed_payload` și izolat în Dead-Letter Queue.
+Sistemul oferă suport complet pentru prelucrarea structurată a datelor XML prin două modele complementare:
+* **Contractul Formal XSD (`Common/PayloadSchema.xsd`):** Definește schema strictă a mesajelor (`topic`, `message`, `sender`, `id`, `timestamp`, `sequence_number`).
+* **Modelul SAX (`XmlReader`):** Utilizat pentru streaming de mare viteză și consum minim de memorie ($\mathcal{O}(1)$ overhead), ideal pentru inspecția rapidă a tag-urilor.
+* **Modelul DOM (`XDocument`):** Utilizat pentru încărcarea completă a arborelui în memorie, permițând validarea structurală împotriva schemei XSD și transformări structurale înainte de serializare.
+* **Izolare în Dead-Letter Queue:** Orice mesaj XML malformat sau care încalcă schema XSD este automat respins cu codul `ERROR#malformed_payload` și direcționat în jurnalul DLQ (`storage/dead_letter.journal`).
 
-### 2.3. Ordonarea Mesajelor (FIFO) și Numere de Secvență Monotone
-* Fiecare topic menține un contor atomic monoton crescător (`_topicSequences`).
-* La recepționarea fiecărui mesaj, brokerul atribuie un `sequence_number` unic per topic.
-* Consumatorii pot detecta mesaje lipsă, reordonări sau duplicate inspectând consecutivitatea numerelor de secvență.
+---
+
+### 2.3. Ordonarea Mesajelor (FIFO) și Secvențe Monotone
+* Brokerul menține contoare atomice monotone crescătoare per-topic (`_topicSequences`).
+* Fiecărui mesaj publicat pe un topic i se atribuie un `sequence_number` consecutiv ($1, 2, 3, \dots$).
+* Consumatorii pot detecta pierderea pachetelor, duplicarea sau reordonarea prin verificarea consecutivității numerelor de secvență.
+
+---
 
 ### 2.4. Fiabilitate Bidirecțională: Protocolul ACK / NACK și In-Flight Tracking
-Sistemul implementează confirmare pe două nivele:
-1. **Producer ACK (`ACK#published#<uuid>`):** Brokerul confirmă producătorului că mesajul a fost serializat, îmbogățit (Content Enricher) și scris în jurnalul persistent.
-2. **Consumer ACK (`ACK#consumed#<uuid>`):** Consumatorul confirmă explicit brokerului că a prelucrat mesajul cu succes. Brokerul elimină mesajul din registrul `InFlightMessages`.
-3. **Consumer NACK (`NACK#<uuid>#<reason>`):** Dacă prelucrarea eșuează pe consumator, acesta emite un NACK, determinând brokerul să mute mesajul în Dead-Letter Queue pentru inspecție ulterioară.
+Confirmarea este decuplată și controlată la nivelul aplicației prin două bucle de feedback:
 
-### 2.5. Reziliență la Eșecuri: At-Least-Once Delivery + Consumator Idempotent
-* **Problema:** Într-un sistem distribuit, un consumator poate executa un efect local (ex: debitare/creditare cont bancar), dar procesul poate cădea (crash / pană de curent) **înainte** ca pachetul TCP ACK să ajungă la broker. Brokerul va relivra mesajul.
-* **Soluția Arhitecturală:** **Idempotent Consumer Pattern**.
-  * Consumatorii mențin un cache local al ID-urilor prelucrate (`_processedMessageIds` / `self.processed_ids`).
-  * La recepția unui mesaj duplicat, efectul local este omis (skipped), iar confirmarea ACK este retransmisă către broker.
-  * **Ecuatia garantiei:** $\text{At-Least-Once Delivery} + \text{Idempotent Consumer} = \text{End-to-End Exactly-Once Processing}$.
+1. **Producer ACK (`ACK#published#<id>`):** Brokerul confirmă producătorului că mesajul a fost validat, îmbogățit (Content Enricher) și persistat pe disc în jurnal.
+2. **Consumer ACK (`ACK#consumed#<id>`):** Consumatorul confirmă explicit că mesajul a fost recepționat și prelucrat cu succes. Brokerul șterge mesajul din registrul `InFlightMessages`.
+3. **Consumer NACK (`NACK#<id>#<reason>`):** Dacă prelucrarea locală pe consumator eșuează, acesta emite un NACK, determinând brokerul să arhiveze mesajul în Dead-Letter Queue pentru investigații ulterioare.
 
-### 2.6. Paradigme de Transmisie: Multicast vs. Unicast
-Conform cerințelor programei:
-* **Multicast (Pub/Sub):** Pentru topicuri standard (ex: `news`, `events`), mesajul este distribuit în evantai (fan-out) către **toți** abonații activi.
-* **Unicast (Queue / Competing Consumers):** Pentru topicurile prefixate cu `queue:` (ex: `queue:tasks`, `queue:orders`), brokerul direcționează mesajul către **un singur consumator activ**, folosind algoritmul **Round-Robin**. Acest model asigură partajarea echitabilă a sarcinii (load leveling) între lucrători concurenți fără duplicate.
+---
+
+### 2.5. Reziliență la Căderi: At-Least-Once Delivery + Consumator Idempotent
+
+Într-un sistem distribuit real, un nod consumator poate executa un efect local (ex: tranzacție financiară), dar se poate prăbuși (crash fault, pană de curent) **înainte** ca pachetul de confirmare ACK să ajungă la Broker. În acest caz, Brokerul va retransmite mesajul la reconectare.
+
+Pentru a atinge semantică de procesare **Exactly-Once** fără blocajele de performanță specifice protocoalelor Two-Phase Commit (2PC), sistemul aplică **Idempotent Consumer Pattern**:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Publisher
+    participant Broker as Broker (.NET 8)
+    participant Storage as Journal & DLQ
+    actor Consumer as Consumer (Worker)
+
+    Note over Publisher,Consumer: 1. Publicare și Confirmare Producător
+    Publisher->>Broker: Send Message (JSON/XML + \n)
+    Broker->>Storage: Validare XSD & Scriere în Journal
+    Broker-->>Publisher: ACK#published#<id>
+
+    Note over Broker,Consumer: 2. Livrare și Urmărire In-Flight
+    Broker->>Broker: InFlightMessages[id] = Now()
+    Broker->>Consumer: Livrare mesaj (Format negociat)
+
+    Note over Consumer: 3. Prelucrare & Scenariu Critic de Cădere
+    Consumer->>Consumer: Execuție efect local (ex: Credit cont +500 MDL)
+    Note over Consumer: [CRASH ABRUPT] Proces oprit înainte de transmiterea ACK!
+
+    Note over Broker,Consumer: 4. Recuperare & Deduplicare Idempotentă
+    Consumer->>Broker: Reconectare socket & Re-abonare
+    Broker->>Consumer: Relivrare mesaj neconfirmat (At-Least-Once)
+    Consumer->>Consumer: Verificare Deduplication Cache (processed_ids)
+    Note over Consumer: [DUPLICAT DETECTAT] Omitere efect local! Soldul rămâne 500 MDL.
+    Consumer->>Broker: ACK#consumed#<id>
+    Broker->>Broker: Ștergere din InFlightMessages[id]
+```
+
+$$\text{At-Least-Once Delivery (Broker)} + \text{Idempotent Consumer (Deduplication)} = \text{Exactly-Once Processing Effect}$$
+
+---
+
+### 2.6. Paradigme de Rutare: Multicast (Pub/Sub) vs. Unicast (Queues)
+
+Sistemul suportă două moduri fundamentale de livrare a mesajelor în funcție de prefixul topicului:
+
+```mermaid
+flowchart LR
+    MsgIn["Mesaj Primit în Broker"] --> Check{"Prefix Topic?"}
+    
+    Check -- "queue:*" --> QueueRouter["Unicast Queue Router\n(Competing Consumers)"]
+    QueueRouter --> RR["Round-Robin Selector\n(idx = (idx + 1) % ActiveWorkers)"]
+    RR --> Worker1["Worker A (Execută sarcina)"]
+    RR -.-> Worker2["Worker B (Rămâne liber pentru sarcina următoare)"]
+
+    Check -- "alt topic (ex: 'stiri')" --> FanoutRouter["Multicast Fan-out Router\n(Pub / Sub)"]
+    FanoutRouter --> SubA["Subscriber 1 (Recepționează)"]
+    FanoutRouter --> SubB["Subscriber 2 (Recepționează)"]
+    FanoutRouter --> SubC["Subscriber N (Recepționează)"]
+```
+
+1. **Multicast (Publish / Subscribe):**
+   * Se aplică topicurilor standard (ex: `stiri`, `senzori`, `alerte`).
+   * Mesajul este distribuit în evantai (*fan-out*) către **toți** abonații conectați la acel topic.
+2. **Unicast (Point-to-Point Queue / Competing Consumers):**
+   * Se aplică topicurilor prefixate cu `queue:` (ex: `queue:tasks`, `queue:jobs`).
+   * Mesajul este distribuit către **un singur consumator activ**, selectat pe baza algoritmului **Round-Robin**. Acest mecanism asigură balansarea sarcinii de lucru (load leveling) între lucrători concurenți, fără duplicarea execuției.
+
+---
 
 ### 2.7. Dead-Letter Queue (DLQ)
-* Situat în `storage/dead_letter.journal`.
-* Salvează payload-urile corupte, XML-urile neconforme cu schema XSD, mesajele fără topic și mesajele respinse prin NACK, prevenind blocarea cozilor principale (poison pill protection).
+* Implementat în `storage/dead_letter.journal`.
+* Izolează mesajele corupte, payload-urile care violează schema XSD, pachetele fără topic și mesajele respinse explicit prin NACK.
+* Previne blocarea consumatorilor (protecție împotriva atacurilor de tip *poison pill*).
+
+---
 
 ### 2.8. Adapter Pattern (Negociere Poliglotă de Format)
-* Producătorul poate trimite în format XML, iar consumatorul poate alege să primească în JSON (sau invers). Brokerul realizează conversia structurală automată și transparentă.
+* Brokerul inspectează formatul de intrare și efectuează conversia structurală automată în formatul preferat de fiecare abonat (`JSON` sau `XML`).
+* Un producător poate trimite mesaje în XML, iar un consumator Python le poate primi direct convertite în JSON nativ (sau invers).
 
 ---
 
@@ -143,7 +215,7 @@ Agent-de-mesagerie/
 │   └── subscriber.py            # Client consolă pentru recepție cu Idempotent Consumer
 │
 ├── tests/                       # Suita completă de teste automate de verificare
-│   ├── test_part1.py            # Verificare completă cerințe de bază Increment 1
+│   ├── test_part1.py            # Verificare completă fluxuri Pub/Sub și Adapter
 │   ├── test_xml_validation.py   # Validare XSD Schema și rejecție în DLQ
 │   ├── test_ordering.py         # Verificare ordonare FIFO și numere de secvență
 │   ├── test_consumer_ack.py     # Verificare protocol Consumer ACK / NACK
@@ -157,9 +229,9 @@ Agent-de-mesagerie/
 
 ---
 
-## 4. Ghid de Rulare și Demonstrare
+## 4. Ghid de Rulare
 
-### Opțiunea A: Rulare cu Docker Compose (Recomandat pentru Producție/Demonstrație)
+### Opțiunea A: Rulare Containerizată cu Docker Compose (Recomandat)
 
 Lansează Brokerul într-un container complet izolat, cu volum de date mapat pentru persistență:
 
@@ -176,32 +248,29 @@ docker compose down
 
 ---
 
-### Opțiunea B: Rulare Nativă Locală (Fără Docker)
+### Opțiunea B: Rulare Nativă Locală
 
-#### Pasul 1: Pornirea Brokerului
-Deschide un terminal și rulează:
+#### 1. Pornirea Brokerului
 ```bash
 dotnet run --project Broker/Broker.csproj
 ```
-Brokerul va inițializa socketul pe `0.0.0.0:9000`, va încărca mesajele din `storage/messages.journal` și va porni cele 4 thread-uri din Worker Pool.
+Brokerul va inițializa socketul pe `0.0.0.0:9000`, va încărca mesajele din `storage/messages.journal` și va porni thread-urile din Worker Pool.
 
-#### Pasul 2: Pornirea Interfețelor Grafice (UI)
+#### 2. Pornirea Interfețelor Grafice (UI)
 
 * **Subscriber UI (Consumator):**
-  Deschide un terminal nou:
   ```bash
   python Clients/Python/subscriber_ui.py --name "Consumator-Alice"
   ```
-  * Permite conectarea la broker, abonarea la topicuri (`stiri`, `sport` sau `queue:joburi`), comutarea în timp real a formatului preferat (JSON / XML) și inspectarea pachetului brut primit.
+  Permite conectarea la broker, abonarea la topicuri (`stiri`, `evenimente` sau `queue:sarcini`), comutarea în timp real a formatului preferat (JSON / XML) și inspectarea pachetului brut primit.
 
 * **Publisher UI (Producător):**
-  Deschide încă un terminal:
   ```bash
   python Clients/Python/publisher_ui.py --name "Producator-Bob"
   ```
-  * Permite trimiterea continuă de mesaje pe orice topic, selectarea formatului de transmisie (JSON sau XML) și vizualizarea confirmărilor `ACK#published#...`.
+  Permite trimiterea continuă de mesaje pe orice topic sau coadă, selectarea formatului de transmisie (JSON sau XML) și vizualizarea confirmărilor `ACK#published#...`.
 
-#### Pasul 3: Pornirea Clienților Consolă (Alternativă)
+#### 3. Pornirea Clienților Consolă
 ```bash
 # Consumator C#
 dotnet run --project Subscriber/Subscriber.csproj
@@ -215,51 +284,27 @@ python Clients/Python/subscriber.py
 
 ---
 
-## 5. Verificare Automată și Demonstrarea Incidentelor Critice
+## 5. Verificare Automată și Teste End-to-End
 
-Toate cerințele profesorului și scenariile limită pot fi verificate prin rularea suitei de teste Python (cu Brokerul pornit):
+Suita completă de teste poate fi executată direct prin Python împotriva unui Broker activ:
 
-### 1. Testul General de Integrare (Incrementul 1)
-Validează subscripțiile multiple, dezabonarea dinamică, format negotiation (Adapter Pattern) și prevenirea subscripțiilor duplicat:
 ```bash
+# 1. Integrare generală (Pub/Sub, Adapter XML<->JSON, Unsubscribe, Content Enricher)
 python tests/test_part1.py
-```
 
-### 2. Validare XML Schema (XSD) și Inspecție DLQ
-Validează că mesajele XML conforme trec cu succes, iar mesajele XML corupte sau fără topic sunt respinse și stocate în `storage/dead_letter.journal`:
-```bash
+# 2. Validare XSD Schema și izolare payload-uri invalide în DLQ
 python tests/test_xml_validation.py
-```
 
-### 3. Ordonarea Mesajelor și Numere de Secvență (FIFO)
-Validează că 5 mesaje consecutive primesc numere monotone de secvență (1..5) și sunt recepționate în ordine strictă:
-```bash
+# 3. Ordonare FIFO și numere de secvență per-topic
 python tests/test_ordering.py
-```
 
-### 4. Protocolul Consumer ACK / NACK
-Validează bucla de feedback: consumatorul confirmă prelucrarea sau trimite NACK în caz de eșec local:
-```bash
+# 4. Protocolul bidirecțional Consumer ACK / NACK și In-Flight tracking
 python tests/test_consumer_ack.py
-```
 
-### 5. Transmisiuni Unicast (Queue) vs Multicast (Pub/Sub)
-Validează cerința de transmisiuni unicast și multicast:
-* 4 mesaje trimise pe `queue:tasks` sunt împărțite echitabil prin Round-Robin către 2 lucrători diferiți (2 mesaje fiecare, zero coliziuni).
-* 2 mesaje trimise pe un topic broadcast sunt livrate ambilor consumatori.
-```bash
+# 5. Transmisiuni Unicast (Round-Robin Queue) vs Multicast (Pub/Sub)
 python tests/test_unicast_queue.py
-```
 
-### 6. Reproducerea Incidentului Critic (Crash Before ACK & Deduplicare)
-Simulează un eșec catastrofal într-o tranzacție financiară:
-1. Producătorul emite un credit de **500 MDL**.
-2. Consumatorul aplică efectul local în cont (sold = 500 MDL).
-3. **Injectare de haos:** Procesul consumatorului se prăbușește abrupt (crash) înainte de a apuca să trimită ACK-ul către broker.
-4. Consumatorul repornește, brokerul îi relivrează mesajul neconfirmat.
-5. Consumatorul detectează mesajul prin **Deduplication Cache**, sare peste efectul local și retrimite ACK-ul.
-6. Soldul rămâne exact **500 MDL** (fără dublă debitare/creditare).
-```bash
+# 6. Reproducerea incidentului critic de haos (Crash înainte de ACK & Deduplicare)
 python tests/test_critical_scenario_crash_before_ack.py
 ```
 
@@ -267,18 +312,18 @@ python tests/test_critical_scenario_crash_before_ack.py
 
 ## 6. Referința Protocolului de Comunicație
 
-Toate comenzile sunt încadrate prin delimitatorul newline (`\n`):
+Toate comenzile și cadrele de date sunt delimitate prin caracterul newline (`\n`):
 
-| Comandă / Format | Direcție | Semnificație Arhitecturală |
+| Comandă / Cadru | Direcție | Semnificație Arhitecturală |
 |---|---|---|
 | `subscribe#<topic>` | Client → Broker | Abonare durabilă la un topic (include replay istoric) |
-| `subscribe#<topic>#live` | Client → Broker | Abonare efemeră (numai mesaje viitoare, fără istoric) |
+| `subscribe#<topic>#live` | Client → Broker | Abonare efemeră (numai mesaje viitoare, fără replay istoric) |
 | `subscribe#queue:<nume>` | Client → Broker | Înregistrare ca lucrător concurent pe o coadă Unicast |
 | `unsubscribe#<topic>` | Client → Broker | Dezabonare dinamică de la un topic |
 | `history#<topic>` | Client → Broker | Solicitare explicită a istoricului din jurnal |
 | `topics#list` | Client → Broker | Interogare a topicurilor active în broker |
 | `format#json\|xml` | Client → Broker | Negociere format primit (Adapter Pattern) |
-| `ACK#consumed#<id>` | Consumator → Broker | Confirmare prelucrare cu succes (eliminare din in-flight) |
+| `ACK#consumed#<id>` | Consumator → Broker | Confirmare prelucrare cu succes (eliminare din registrul in-flight) |
 | `NACK#<id>#<motiv>` | Consumator → Broker | Semnalare eroare de consum (direcționare payload în DLQ) |
 | `ACK#published#<id>` | Broker → Producător | Confirmare stocare și îmbogățire payload (Content Enricher) |
 | `ACK#subscribed#<topic>` | Broker → Consumator | Confirmare înregistrare subscripție |
@@ -286,12 +331,12 @@ Toate comenzile sunt încadrate prin delimitatorul newline (`\n`):
 
 ---
 
-## 7. Argumentarea Compromisurilor Arhitecturale (Trade-offs)
+## 7. Compromisuri Arhitecturale (Trade-offs)
 
-1. **At-Least-Once Delivery vs. Exactly-Once Delivery pur de rețea:**
-   * În conformitate cu *Teorema celor doi generali* și limitările fundamentale ale protocolului TCP/IP, livrarea exact-o-dată la nivel pur de transport este imposibilă în rețele nesigure.
-   * Compromisul asumat este garantarea **At-Least-Once la nivel de transport** combinată cu **Idempotent Consumer la nivel de aplicație**, ceea ce asigură procesare efectivă Exactly-Once fără penalizări masive de performanță prin blocaje 2PC (Two-Phase Commit).
+1. **At-Least-Once Delivery vs. Exactly-Once Delivery pur la nivel de rețea:**
+   * Conform *Teoremei celor doi generali* și limitărilor fundamentale ale protocolului TCP/IP, livrarea atomică exact-o-dată la nivel pur de transport este imposibilă în rețele nesigure.
+   * Compromisul asumat este garantarea **At-Least-Once la nivel de transport** combinată cu **Idempotent Consumer la nivel de aplicație**, ceea ce asigură procesare efectivă Exactly-Once fără penalizări masive de latență prin blocaje 2PC (Two-Phase Commit).
 2. **Jurnal Append-Only vs. Bază de Date Relațională:**
-   * Utilizarea fișierelor jurnal (`storage/messages.journal` și `storage/dead_letter.journal`) oferă o complexitate de scriere $O(1)$ și viteză maximă de I/O secvențial, eliminând dependențele externe greoaie pentru această primă etapă.
+   * Utilizarea fișierelor jurnal (`storage/messages.journal` și `storage/dead_letter.journal`) oferă o complexitate de scriere $\mathcal{O}(1)$ și viteză maximă de I/O secvențial pe disc, eliminând dependențele externe pentru performanță sporită.
 3. **Delimiter Framing (`\n`) vs. Length-Prefix Framing:**
-   * Delimitarea prin caracter newline a facilitat testarea poliglotă rapidă, interoperabilitatea cu terminale și unelte standard (netcat/telnet) și parsarea facilă în Python și C#, păstrând simplitatea și claritatea cerută de o verificare universitară.
+   * Delimitarea prin caracter newline facilitează interoperabilitatea poliglotă imediată între C#, Python și utilitare standard de sistem (netcat/telnet), păstrând simplitatea, fiabilitatea și eficiența protocolului de mesagerie.
