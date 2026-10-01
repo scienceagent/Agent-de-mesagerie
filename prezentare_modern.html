@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keynote: Resilient Distributed Message Broker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #000000;
+      --card-bg: rgba(255, 255, 255, 0.05);
+      --card-border: rgba(255, 255, 255, 0.12);
+      --accent: #2563eb;
+      --accent-glow: #3b82f6;
+      --accent-cyan: #06b6d4;
+      --accent-green: #10b981;
+      --accent-red: #ef4444;
+      --text: #ffffff;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --font-display: 'Space Grotesk', -apple-system, sans-serif;
+      --font-body: 'Plus Jakarta Sans', -apple-system, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* Ambient Spotlight Background */
+    .spotlight {
+      position: fixed;
+      width: 900px;
+      height: 900px;
+      background: radial-gradient(circle, rgba(37, 99, 235, 0.18) 0%, rgba(6, 182, 212, 0.08) 40%, transparent 70%);
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      filter: blur(120px);
+      pointer-events: none;
+      z-index: 1;
+      transition: all 0.8s ease;
+    }
+
+    /* Presentation Frame (Apple Keynote 16:9 Style) */
+    .keynote-container {
+      position: relative;
+      z-index: 10;
+      width: 1280px;
+      max-width: 96vw;
+      height: 740px;
+      max-height: 94vh;
+      background: radial-gradient(120% 120% at 50% 10%, #111827 0%, #030712 100%);
+      border-radius: 28px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 40px 100px -30px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Top Keynote Bar */
+    .keynote-header {
+      padding: 24px 48px 12px 48px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .brand-pill {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.2);
+      padding: 6px 14px;
+      border-radius: 99px;
+    }
+    .brand-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #38bdf8;
+      box-shadow: 0 0 10px #38bdf8;
+    }
+
+    /* Slides Stage */
+    .stage {
+      flex: 1;
+      position: relative;
+      padding: 16px 48px 24px 48px;
+    }
+    .slide {
+      position: absolute;
+      inset: 0;
+      padding: 20px 48px 30px 48px;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.97) translateY(16px);
+      transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .slide.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: scale(1) translateY(0);
+    }
+
+    /* Typography */
+    .hero-eyebrow {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: #38bdf8;
+      margin-bottom: 12px;
+    }
+    .hero-headline {
+      font-family: var(--font-display);
+      font-size: 58px;
+      font-weight: 800;
+      line-height: 1.08;
+      letter-spacing: -0.03em;
+      margin-bottom: 20px;
+    }
+    .hero-headline span.gradient {
+      background: linear-gradient(135deg, #ffffff 30%, #60a5fa 70%, #06b6d4 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-headline span.danger {
+      background: linear-gradient(135deg, #ffffff 30%, #f87171 70%, #ef4444 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-sub {
+      font-size: 20px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      max-width: 860px;
+      font-weight: 400;
+    }
+
+    /* Layout Grids */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      align-items: center;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+    }
+
+    /* Cards */
+    .glass-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      padding: 28px;
+      backdrop-filter: blur(20px);
+      transition: all 0.3s;
+      position: relative;
+      overflow: hidden;
+    }
+    .glass-card:hover {
+      border-color: rgba(255, 255, 255, 0.25);
+      transform: translateY(-2px);
+    }
+    .glass-card.highlight {
+      background: linear-gradient(145deg, rgba(37, 99, 235, 0.2) 0%, rgba(6, 182, 212, 0.08) 100%);
+      border-color: rgba(56, 189, 248, 0.4);
+      box-shadow: 0 10px 30px -10px rgba(37, 99, 235, 0.3);
+    }
+
+    /* Big Numbers */
+    .big-stat {
+      font-family: var(--font-display);
+      font-size: 76px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      margin-bottom: 8px;
+    }
+    .big-stat.blue { color: #60a5fa; }
+    .big-stat.green { color: #34d399; }
+    .big-stat.red { color: #f87171; }
+    .stat-caption {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    /* Team Pills */
+    .author-pill {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 16px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .author-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2563eb, #06b6d4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 16px;
+      color: #fff;
+    }
+    .author-name { font-size: 15px; font-weight: 700; color: #f8fafc; }
+    .author-role { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+
+    /* Interactive Visual Diagram (Live Pipeline) */
+    .pipeline-visual {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      position: relative;
+    }
+    .pipeline-nodes {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: relative;
+      padding: 10px 0;
+    }
+    .pipe-node {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 14px;
+      padding: 14px 18px;
+      text-align: center;
+      min-width: 140px;
+      position: relative;
+      z-index: 2;
+      transition: all 0.3s;
+    }
+    .pipe-node.active {
+      border-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.15);
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
+      transform: scale(1.05);
+    }
+    .pipe-node-title { font-size: 13px; font-weight: 700; color: #f8fafc; }
+    .pipe-node-sub { font-size: 10.5px; color: #94a3b8; margin-top: 4px; font-family: monospace; }
+
+    .pipe-connector {
+      flex: 1;
+      height: 2px;
+      background: rgba(255, 255, 255, 0.15);
+      position: relative;
+      overflow: hidden;
+    }
+    .pipe-pulse {
+      position: absolute;
+      height: 100%;
+      width: 40px;
+      background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+      animation: pipeFlow 1.8s infinite linear;
+    }
+    @keyframes pipeFlow {
+      0% { left: -40px; }
+      100% { left: 100%; }
+    }
+
+    /* Live Interactive Terminal */
+    .terminal-window {
+      background: #050811;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 16px 20px;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 12.5px;
+      color: #38bdf8;
+      height: 180px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+    .action-btn {
+      background: #ffffff;
+      color: #000000;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 99px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .action-btn:hover {
+      background: #e2e8f0;
+      transform: scale(1.03);
+    }
+    .action-btn.danger {
+      background: #ef4444;
+      color: #ffffff;
+    }
+    .action-btn.danger:hover {
+      background: #dc2626;
+    }
+
+    /* Bottom Deck Controls */
+    .keynote-footer {
+      padding: 16px 48px 24px 48px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .dots { display: flex; gap: 8px; }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .dot.active {
+      width: 24px;
+      border-radius: 99px;
+      background: #ffffff;
+    }
+    .nav-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #ffffff;
+      padding: 8px 18px;
+      border-radius: 99px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .nav-btn:hover { background: rgba(255, 255, 255, 0.2); }
+    .nav-btn.primary {
+      background: #ffffff;
+      color: #000000;
+      border-color: #ffffff;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="spotlight" id="spotlight"></div>
+
+  <div class="keynote-container">
+    
+    <!-- Top Header -->
+    <div class="keynote-header">
+      <div class="brand-pill">
+        <span class="brand-dot"></span>
+        FCIM • Ingineria Sistemelor Software 2026
+      </div>
+      <div style="font-size: 13px; color: var(--text-muted); font-weight: 600;" id="slideCounter">01 / 10</div>
+    </div>
+
+    <!-- Main Stage -->
+    <div class="stage">
+
+      <!-- SLIDE 1: VISION -->
+      <div class="slide active">
+        <div class="hero-eyebrow">Etapa 1 • Comunicare Fiabilă</div>
+        <h1 class="hero-headline">
+          Sistemul de Mesagerie<br>
+          <span class="gradient">Care Nu Cedează Niciodată.</span>
+        </h1>
+        <p class="hero-sub" style="margin-bottom: 32px;">
+          Decuplare totală în timp și spațiu. Garanții <em>At-Least-Once</em>, deduplicare idempotentă la crash și validare formală la frontieră.
+        </p>
+
+        <div class="grid-4">
+          <div class="author-pill">
+            <div class="author-avatar">RG</div>
+            <div>
+              <div class="author-name">Raevschi Grigore</div>
+              <div class="author-role">Core Broker & Concurrency</div>
+            </div>
+          </div>
+          <div class="author-pill">
+            <div class="author-avatar">BP</div>
+            <div>
+              <div class="author-name">Bajureanu Patricia</div>
+              <div class="author-role">Contract XSD & Validare</div>
+            </div>
+          </div>
+          <div class="author-pill">
+            <div class="author-avatar">TS</div>
+            <div>
+              <div class="author-name">Tihon Stanislav</div>
+              <div class="author-role">Protocol ACK/NACK & Retry</div>
+            </div>
+          </div>
+          <div class="author-pill">
+            <div class="author-avatar">CM</div>
+            <div>
+              <div class="author-name">Cojocaru Mihai</div>
+              <div class="author-role">TCP Framing & Queues</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 2: THE MYTH / THE ANTAGONIST -->
+      <div class="slide">
+        <div class="hero-eyebrow">Problema Inginerească</div>
+        <h2 class="hero-headline">
+          Iluzia Rețelelor Fiabile.<br>
+          <span class="danger">Unde Eșuează Sistemele Nominale?</span>
+        </h2>
+        
+        <div class="grid-3">
+          <div class="glass-card">
+            <div class="big-stat red">503</div>
+            <div class="stat-caption">Cascada de Erori Sincrone</div>
+            <p style="color: var(--text-muted); font-size: 14px; margin-top: 10px; line-height: 1.5;">
+              Dacă un nod HTTP e lent 200ms, tot lanțul de apeluri se blochează și aruncă erori utilizatorilor.
+            </p>
+          </div>
+          <div class="glass-card highlight">
+            <div class="big-stat red">2x</div>
+            <div class="stat-caption">Tranzacții Duplicate la Crash</div>
+            <p style="color: #e2e8f0; font-size: 14px; margin-top: 10px; line-height: 1.5;">
+              Consumatorul debitează contul, dar conexiunea moare înainte de ACK. La restart, clientul este taxat de două ori!
+            </p>
+          </div>
+          <div class="glass-card">
+            <div class="big-stat red">☠</div>
+            <div class="stat-caption">Efectul "Poison Pill"</div>
+            <p style="color: var(--text-muted); font-size: 14px; margin-top: 10px; line-height: 1.5;">
+              Un singur mesaj corupt sau malformat intră în coadă și provoacă prăbușirea în buclă infinită a workerilor.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 3: THE SECRET FORMULA -->
+      <div class="slide">
+        <div class="hero-eyebrow">Fundament Teoretic</div>
+        <h2 class="hero-headline">
+          Formula Rezilienței Noastre:<br>
+          <span class="gradient">At-Least-Once + Idempotent.</span>
+        </h2>
+
+        <div class="grid-2">
+          <div class="glass-card highlight" style="padding: 36px;">
+            <div style="font-size: 13px; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 1px;">Echivalență Semantică</div>
+            <div style="font-family: var(--font-display); font-size: 26px; font-weight: 700; margin: 16px 0; color: #fff; line-height: 1.4;">
+              [At-Least-Once Delivery]<br>
+              + [Idempotent Consumer Deduplication]<br>
+              <span style="color: #34d399;">= Exactly-Once Business Effect</span>
+            </div>
+            <p style="color: var(--text-muted); font-size: 14px; line-height: 1.6;">
+              Nu depindem de protocoale lente de consens sincron (2PC). Lăsăm rețeaua să fie asincronă și rapidă, garantând corectitudinea la destinație.
+            </p>
+          </div>
+
+          <div class="grid-2" style="gap: 16px;">
+            <div class="glass-card">
+              <div class="big-stat blue">0</div>
+              <div class="stat-caption">Mesaje Pierdute</div>
+              <p style="color: var(--text-muted); font-size: 12px; margin-top: 6px;">Jurnal append-only O(1) scris pe disc</p>
+            </div>
+            <div class="glass-card">
+              <div class="big-stat green">0</div>
+              <div class="stat-caption">Duplicate de Debit</div>
+              <p style="color: var(--text-muted); font-size: 12px; margin-top: 6px;">Tabelă hash idempotentă de filtrare</p>
+            </div>
+            <div class="glass-card" style="grid-column: span 2;">
+              <div class="big-stat blue" style="font-size: 48px;">4x Cores</div>
+              <div class="stat-caption">Worker Pool Concurent Paralel</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 4: THE ARCHITECTURE IN MOTION -->
+      <div class="slide">
+        <div class="hero-eyebrow">Arhitectură Vizuală</div>
+        <h2 class="hero-headline">
+          Conducta de Date: <span class="gradient">De la Producător la Consumator</span>
+        </h2>
+
+        <!-- Interactive Visual Pipeline -->
+        <div class="pipeline-visual">
+          <div class="pipeline-nodes">
+            <div class="pipe-node active" id="nodePub">
+              <div class="pipe-node-title">Publisher</div>
+              <div class="pipe-node-sub">Python / .NET</div>
+            </div>
+            <div class="pipe-connector"><div class="pipe-pulse"></div></div>
+            <div class="pipe-node" id="nodeFrame">
+              <div class="pipe-node-title">TCP Framing</div>
+              <div class="pipe-node-sub">Delimiter '\n'</div>
+            </div>
+            <div class="pipe-connector"><div class="pipe-pulse"></div></div>
+            <div class="pipe-node" id="nodeXSD">
+              <div class="pipe-node-title">Validare XSD</div>
+              <div class="pipe-node-sub">Fail-Fast / DLQ</div>
+            </div>
+            <div class="pipe-connector"><div class="pipe-pulse"></div></div>
+            <div class="pipe-node" id="nodeJournal">
+              <div class="pipe-node-title">Append-Only</div>
+              <div class="pipe-node-sub">Journal Disc</div>
+            </div>
+            <div class="pipe-connector"><div class="pipe-pulse"></div></div>
+            <div class="pipe-node" id="nodeWorkers">
+              <div class="pipe-node-title">4x Workers</div>
+              <div class="pipe-node-sub">Concurrent Pool</div>
+            </div>
+            <div class="pipe-connector"><div class="pipe-pulse"></div></div>
+            <div class="pipe-node" id="nodeSub">
+              <div class="pipe-node-title">Subscriber</div>
+              <div class="pipe-node-sub">Idempotent</div>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
+            <div style="font-size: 13px; color: var(--text-muted);">
+              💡 <em>Fiecare etapă este decuplată și asincronă, garantând procesare non-blocantă.</em>
+            </div>
+            <button class="action-btn" onclick="animateDataPacket()">
+              🚀 Simulează Pachet de Date
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 5: CONTRACT ENFORCEMENT & DLQ -->
+      <div class="slide">
+        <div class="hero-eyebrow">Imunitate & Contracte</div>
+        <h2 class="hero-headline">
+          Poison Pills Stop Here.<br>
+          <span class="gradient">Validare Formală XSD & Dead-Letter Queue.</span>
+        </h2>
+
+        <div class="grid-2">
+          <div class="glass-card">
+            <div style="font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 12px;">Validare la Intrare (Fail-Fast)</div>
+            <p style="color: var(--text-muted); font-size: 14px; line-height: 1.6; margin-bottom: 16px;">
+              Orice mesaj XML este compilat contra schemei <span style="color:#38bdf8; font-family:monospace;">message.xsd</span> înainte de a consuma resurse din broker:
+            </p>
+            <div style="background: rgba(0,0,0,0.5); padding: 12px; border-radius: 10px; font-family: monospace; font-size: 12px; color: #94a3b8; border: 1px solid rgba(255,255,255,0.08);">
+              &lt;xs:element name="topic" type="xs:string"/&gt;<br>
+              &lt;xs:element name="sender" type="xs:string"/&gt;<br>
+              &lt;xs:element name="id" type="xs:string"/&gt;<br>
+              &lt;xs:element name="sequence_number" type="xs:long"/&gt;
+            </div>
+          </div>
+
+          <div class="glass-card highlight" style="border-color: rgba(239, 68, 68, 0.4);">
+            <div style="font-size: 20px; font-weight: 700; color: #f87171; margin-bottom: 12px;">Izolare Automată în DLQ</div>
+            <p style="color: #e2e8f0; font-size: 14px; line-height: 1.6; margin-bottom: 16px;">
+              Mesajele malformate sau cu retries epuizate nu sunt aruncate și nu blochează workerii. Ele sunt salvate în siguranță pe disc:
+            </p>
+            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); padding: 14px; border-radius: 10px; font-family: monospace; font-size: 12px; color: #fca5a5;">
+              [REJECT] FORMAT:XML malformed -> storage/dead_letter.journal<br>
+              Pipeline-ul activ rămâne complet neafectat!
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 6: MONOTONIC SEQUENCING -->
+      <div class="slide">
+        <div class="hero-eyebrow">Păstrarea Ordinii</div>
+        <h2 class="hero-headline">
+          Fiecare Mesaj. <span class="gradient">În Ordine Exactă.</span>
+        </h2>
+
+        <div class="grid-2">
+          <div class="glass-card">
+            <div class="big-stat blue">Seq #</div>
+            <div class="stat-caption">Contoare Atomice Monotone</div>
+            <p style="color: var(--text-muted); font-size: 14px; margin-top: 14px; line-height: 1.6;">
+              Fiecare topic din memorie deține un contor atomic protejat concurent. Orice mesaj primește numărul 1, 2, 3... fără salturi și fără posibilitate de reordonare.
+            </p>
+          </div>
+          <div class="glass-card highlight">
+            <div class="big-stat green">FIFO</div>
+            <div class="stat-caption">Detectarea Omișilor pe Consumator</div>
+            <p style="color: #e2e8f0; font-size: 14px; margin-top: 14px; line-height: 1.6;">
+              Dacă un pachet ajunge cu întârziere pe rețea, consumatorul observă decalajul de secvență și reasamblează ordinea corectă înainte de a livra evenimentul către logica de afaceri.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 7: THE MOMENT OF TRUTH / CRASH DEMO -->
+      <div class="slide">
+        <div class="hero-eyebrow">Momentul Adevărului • Chaos Engineering</div>
+        <h2 class="hero-headline">
+          Scenariul Critic: <span class="danger">Crash Înainte de ACK.</span>
+        </h2>
+
+        <div class="grid-2">
+          <div class="glass-card">
+            <div style="font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 8px;">Demonstrație Live de Reziliență</div>
+            <p style="color: var(--text-muted); font-size: 13.5px; line-height: 1.5; margin-bottom: 16px;">
+              Simulăm căderea brutală a procesului worker după efectuarea operației locale, urmată de repornire și livrarea duplicatului:
+            </p>
+            <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+              <button class="action-btn danger" onclick="runSteveJobsChaosDemo()">⚡ Trage Ștecherul (Crash & Recovery)</button>
+              <button class="action-btn" style="background: rgba(255,255,255,0.1); color:#fff;" onclick="resetChaosDemo()">Reset</button>
+            </div>
+            <div id="chaosStatus" style="font-size: 13px; font-weight: 700; color: #38bdf8;">Stare: Pregătit pentru simularea de haos.</div>
+          </div>
+
+          <div class="terminal-window" id="chaosTerminal">
+[SYSTEM READY] Conexiune stabilită cu Brokerul TCP (0.0.0.0:9000).
+[AȘTEPTARE] Apasă butonul pentru a declanșa scenariul critic...
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 8: ROUTING REIMAGINED -->
+      <div class="slide">
+        <div class="hero-eyebrow">Rutare Flexibilă</div>
+        <h2 class="hero-headline">
+          Două Topologii. <span class="gradient">O Singură Arhitectură Elegantă.</span>
+        </h2>
+
+        <div class="grid-2">
+          <div class="glass-card">
+            <div style="font-size: 12px; font-weight: 800; color: #38bdf8; letter-spacing: 1.5px; text-transform: uppercase;">Topic Clasic</div>
+            <div style="font-size: 22px; font-weight: 700; margin: 10px 0; color: #fff;">Multicast Fan-Out</div>
+            <p style="color: var(--text-muted); font-size: 14px; line-height: 1.6;">
+              Fiecare consumator abonat primește o copie proprie a mesajului. Ideal pentru transmiterea evenimentelor de sistem, difuzarea de știri și invalidarea de cache pe multiple instanțe.
+            </p>
+          </div>
+
+          <div class="glass-card highlight">
+            <div style="font-size: 12px; font-weight: 800; color: #34d399; letter-spacing: 1.5px; text-transform: uppercase;">Prefixul 'queue:*'</div>
+            <div style="font-size: 22px; font-weight: 700; margin: 10px 0; color: #fff;">Unicast Competing Workers</div>
+            <p style="color: #e2e8f0; font-size: 14px; line-height: 1.6;">
+              Un singur worker primește sarcina prin algoritmul <strong>Round-Robin</strong>. Adăugarea de noi mașini crește instant capacitatea de procesare, fără retransmiterea istoricului vechi.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 9: THE NUMBERS / VERIFICATION -->
+      <div class="slide">
+        <div class="hero-eyebrow">Validare Inginerească</div>
+        <h2 class="hero-headline">
+          Numerele Nu Mint.<br>
+          <span class="gradient">100% Rată de Trecere la Testele de Haos.</span>
+        </h2>
+
+        <div class="grid-3">
+          <div class="glass-card highlight">
+            <div class="big-stat green">100%</div>
+            <div class="stat-caption">6 din 6 Teste Trecute</div>
+            <p style="color: #e2e8f0; font-size: 13px; margin-top: 8px;">Toate suitele automate de verificare trec fără intervenție manuală.</p>
+          </div>
+          <div class="glass-card">
+            <div class="big-stat blue">0.00</div>
+            <div class="stat-caption">Efecte Duplicate</div>
+            <p style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">Idempotența verificată în scenariul de crash post-procesare.</p>
+          </div>
+          <div class="glass-card">
+            <div class="big-stat blue">O(1)</div>
+            <div class="stat-caption">Viteză de Persistență</div>
+            <p style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">Scriere secvențială direct pe disc fără lock-uri pe baze relaționale.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLIDE 10: ONE MORE THING / CONCLUSION -->
+      <div class="slide">
+        <div class="hero-eyebrow">Final & Tranziție</div>
+        <h2 class="hero-headline">
+          One More Thing...<br>
+          <span class="gradient">Containerizat. Portabil. Pregătit de Etapa 2.</span>
+        </h2>
+
+        <div class="grid-2">
+          <div class="glass-card highlight">
+            <div style="font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 8px;">Containerizare Docker (.NET 8)</div>
+            <p style="color: #e2e8f0; font-size: 14px; line-height: 1.6; margin-bottom: 12px;">
+              Pornire instantanee pe orice mașină cu o singură comandă:
+            </p>
+            <div style="background: rgba(0,0,0,0.6); padding: 12px; border-radius: 8px; font-family: monospace; font-size: 13px; color: #38bdf8; border: 1px solid rgba(255,255,255,0.1);">
+              docker-compose up -d --build
+            </div>
+          </div>
+
+          <div class="glass-card">
+            <div style="font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 8px;">Următorul Pas: Etapa 2</div>
+            <p style="color: var(--text-muted); font-size: 14px; line-height: 1.6;">
+              Integrare de servicii prin RPC (gRPC / HTTP), deadline-uri stricte, anulare automată și tratarea explicită a ambiguității rezultatului de rețea.
+            </p>
+          </div>
+        </div>
+
+        <div style="margin-top: 28px; text-align: center; color: var(--text-muted); font-size: 15px; font-weight: 600;">
+          Vă mulțumim! Întrebări & Demonstrație Live.
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Bottom Keynote Footer -->
+    <div class="keynote-footer">
+      <div class="dots" id="dotsList"></div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <button class="nav-btn" onclick="prevSlide()">← Înapoi</button>
+        <button class="nav-btn primary" onclick="nextSlide()">Următorul →</button>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let currentSlide = 0;
+    const slides = document.querySelectorAll('.slide');
+    const totalSlides = slides.length;
+    const dotsList = document.getElementById('dotsList');
+    const counter = document.getElementById('slideCounter');
+
+    // Create dots
+    slides.forEach((_, idx) => {
+      const d = document.createElement('div');
+      d.className = `dot ${idx === 0 ? 'active' : ''}`;
+      d.onclick = () => goToSlide(idx);
+      dotsList.appendChild(d);
+    });
+
+    function updateSlide() {
+      slides.forEach((s, idx) => {
+        s.classList.toggle('active', idx === currentSlide);
+      });
+      document.querySelectorAll('.dot').forEach((d, idx) => {
+        d.classList.toggle('active', idx === currentSlide);
+      });
+      counter.innerText = `${(currentSlide + 1).toString().padStart(2, '0')} / ${totalSlides.toString().padStart(2, '0')}`;
+    }
+
+    function nextSlide() {
+      if (currentSlide < totalSlides - 1) {
+        currentSlide++;
+        updateSlide();
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 0) {
+        currentSlide--;
+        updateSlide();
+      }
+    }
+
+    function goToSlide(idx) {
+      currentSlide = idx;
+      updateSlide();
+    }
+
+    // Keyboard navigation
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        nextSlide();
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        prevSlide();
+      }
+    });
+
+    // Initial update
+    updateSlide();
+
+    // Data packet animation for Slide 4
+    function animateDataPacket() {
+      const nodes = ['nodePub', 'nodeFrame', 'nodeXSD', 'nodeJournal', 'nodeWorkers', 'nodeSub'];
+      nodes.forEach(id => document.getElementById(id).classList.remove('active'));
+      
+      let step = 0;
+      const interval = setInterval(() => {
+        nodes.forEach(id => document.getElementById(id).classList.remove('active'));
+        if (step < nodes.length) {
+          document.getElementById(nodes[step]).classList.add('active');
+          step++;
+        } else {
+          clearInterval(interval);
+          nodes.forEach(id => document.getElementById(id).classList.remove('active'));
+          document.getElementById('nodeSub').classList.add('active');
+        }
+      }, 350);
+    }
+
+    // Chaos Simulator for Slide 7
+    function runSteveJobsChaosDemo() {
+      const term = document.getElementById('chaosTerminal');
+      const status = document.getElementById('chaosStatus');
+      term.innerHTML = '';
+      
+      const log = (msg) => {
+        term.innerHTML += msg + '<br>';
+        term.scrollTop = term.scrollHeight;
+      };
+
+      log("<span style='color:#60a5fa'>[PRODUCĂTOR]</span> Publicat eveniment de debitare: <code>TX-9941</code> (500 MDL)");
+      log("<span style='color:#a78bfa'>[BROKER]</span> Mesaj validat XSD. Atribuit Seq #42. Scris în jurnal.");
+      log("<span style='color:#38bdf8'>[WORKER]</span> Mesaj recepționat. Se aplică debitarea contului...");
+      
+      setTimeout(() => {
+        log("<span style='color:#34d399'>[BAZĂ DE DATE]</span> Sold debitat cu succes: 500 MDL aplicat!");
+        log("<span style='color:#ef4444; font-weight:bold'>[⚡ CRASH ABRUPT]</span> PROCES KILLED ÎNAINTE DE ACK! Socket închis forțat.");
+        status.innerText = "Stare: Consumer prăbușit! Mesajul este neconfirmat în Broker.";
+        status.style.color = "#ef4444";
+      }, 800);
+
+      setTimeout(() => {
+        log("<span style='color:#fbbf24'>[BROKER TIMER]</span> ACK Timeout expirat. Retransmisie mesaj <code>TX-9941</code>...");
+        log("<span style='color:#a78bfa'>[WORKER REBOOT]</span> Consumatorul a repornit. Primește același mesaj duplicat: <code>TX-9941</code>");
+      }, 1800);
+
+      setTimeout(() => {
+        log("<span style='color:#06b6d4'>[DEDUPLICARE IDEMPOTENTĂ]</span> ID <code>TX-9941</code> există în tabela locală!");
+        log("<span style='color:#34d399; font-weight:bold'>[SUCCES TOTAL]</span> Operația de debitare a fost omisă! Trimis ACK direct.");
+        log("<span style='color:#60a5fa'>[BROKER]</span> ACK recepționat curat. Tranzacție finalizată.");
+        status.innerText = "Efect final: Exact-Once! Zero tranzacții duplicate.";
+        status.style.color = "#34d399";
+      }, 3000);
+    }
+
+    function resetChaosDemo() {
+      document.getElementById('chaosTerminal').innerHTML = '[SYSTEM READY] Conexiune stabilită cu Brokerul TCP (0.0.0.0:9000).<br>[AȘTEPTARE] Apasă butonul pentru a declanșa scenariul critic...';
+      const status = document.getElementById('chaosStatus');
+      status.innerText = 'Stare: Pregătit pentru simularea de haos.';
+      status.style.color = '#38bdf8';
+    }
+  </script>
+</body>
+</html>

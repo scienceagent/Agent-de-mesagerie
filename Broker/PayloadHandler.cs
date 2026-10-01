@@ -116,10 +116,23 @@ namespace Broker
                          return;
                     }
 
-                    // 6. Consumer ACK confirmation (ACK#consumed#<id>)
-                    if (messageFrame.StartsWith("ack#consumed#", StringComparison.OrdinalIgnoreCase))
+                    // 6. Consumer ACK confirmation (ACK#consumed#<id>, ACK#<id>, ACK <id>)
+                    if (messageFrame.StartsWith("ack#", StringComparison.OrdinalIgnoreCase) || messageFrame.StartsWith("ack ", StringComparison.OrdinalIgnoreCase))
                     {
-                         string messageId = messageFrame.Substring("ack#consumed#".Length).Trim();
+                         string messageId = "";
+                         if (messageFrame.StartsWith("ack#consumed#", StringComparison.OrdinalIgnoreCase))
+                         {
+                              messageId = messageFrame.Substring("ack#consumed#".Length).Trim();
+                         }
+                         else if (messageFrame.StartsWith("ack#", StringComparison.OrdinalIgnoreCase))
+                         {
+                              messageId = messageFrame.Substring("ack#".Length).Trim();
+                         }
+                         else
+                         {
+                              messageId = messageFrame.Substring(4).Trim();
+                         }
+
                          connectionInfo.InFlightMessages.TryRemove(messageId, out _);
                          Console.WriteLine($"[Broker] Consumer ACK received from [{connectionInfo.Address}] for Message ID: [{messageId}]");
                          return;
